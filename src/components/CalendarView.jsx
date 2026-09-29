@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { dateStr, todayStr } from '../lib/utils'
 import Icon from './Icon'
+import { useTaskMenu } from './TaskMenu'
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土']
 
 export default function CalendarView({ project, tasks, openTask, addTask }) {
   const { state, actions } = useStore()
+  const menu = useTaskMenu()
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [drag, setDrag] = useState(null)
   const [over, setOver] = useState(null)
@@ -64,6 +66,7 @@ export default function CalendarView({ project, tasks, openTask, addTask }) {
                   <button key={t.id} type="button" draggable className={'cal-chip' + (t.completed ? ' is-done' : '')}
                     style={{ borderLeftColor: who?.color || '#c7c4c4' }}
                     onClick={() => openTask(t.id)}
+                    onContextMenu={e => menu(e, t.id)}
                     onDragStart={e => { e.dataTransfer.setData('text/plain', t.id); setDrag(t.id) }}
                     onDragEnd={() => { setDrag(null); setOver(null) }}
                     title={t.title}>

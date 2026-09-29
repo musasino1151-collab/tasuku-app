@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import Icon from './Icon'
+import { useTaskMenu } from './TaskMenu'
 import { Avatar, CheckButton, DueLabel, EditableText, Menu, PriorityPill, QuickAdd } from './common'
 
 export default function BoardView({ project, groups, openTask, toggle, move, addTask }) {
   const { state, actions } = useStore()
+  const menu = useTaskMenu()
   const [drag, setDrag] = useState(null)
   const [over, setOver] = useState(null)
   const [renaming, setRenaming] = useState(null)
@@ -42,6 +44,7 @@ export default function BoardView({ project, groups, openTask, toggle, move, add
                 <div key={t.id} draggable
                   className={'card' + (t.completed ? ' is-done' : '') + (drag === t.id ? ' dragging' : '') + (over === 'task:' + t.id && drag !== t.id ? ' drop-before' : '')}
                   onClick={() => openTask(t.id)}
+                  onContextMenu={e => menu(e, t.id)}
                   onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id); setDrag(t.id) }}
                   onDragEnd={end}
                   onDragOver={e => { if (!drag) return; e.preventDefault(); e.stopPropagation(); setOver('task:' + t.id) }}

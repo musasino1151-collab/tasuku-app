@@ -254,8 +254,9 @@ export function StoreProvider({ session, children }) {
         dispatch({ type: 'upsertMany', table: 'comments', rows: c.data })
         dispatch({ type: 'upsertMany', table: 'activities', rows: act.data })
       },
-      addComment(taskId, body) {
+      addComment(taskId, body, mentions = []) {
         const row = { id: uid(), task_id: taskId, author_id: meId, body, created_at: now() }
+        if (mentions.length) row.mentions = mentions
         dispatch({ type: 'upsert', table: 'comments', row })
         run(() => supabase.from('comments').insert(row), () => dispatch({ type: 'remove', table: 'comments', id: row.id }))
       },

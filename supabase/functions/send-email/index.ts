@@ -32,7 +32,7 @@ type Payload = {
   to: string;
   recipient: string | null;
   actor: string | null;
-  kind: "assigned" | "comment" | "completed" | "due_today" | "due_tomorrow";
+  kind: "assigned" | "comment" | "mention" | "completed" | "due_today" | "due_tomorrow";
   body: string | null;
   task_id: string;
   task_title: string | null;
@@ -65,6 +65,10 @@ function compose(p: Payload) {
       headline = `${actor}さんがコメントしました`;
       subject = `【コメント】${title}`;
       break;
+    case "mention":
+      headline = `${actor}さんがコメントであなたをメンションしました`;
+      subject = `【メンション】${title}`;
+      break;
     case "completed":
       headline = `${actor}さんがタスクを完了しました`;
       subject = `【完了】${title}`;
@@ -80,7 +84,7 @@ function compose(p: Payload) {
   }
   subject = `[${APP_NAME}] ${subject}`;
 
-  const quote = p.kind === "comment" && p.body ? p.body : "";
+  const quote = (p.kind === "comment" || p.kind === "mention") && p.body ? p.body : "";
   const text = [
     `${p.recipient ?? ""}さん`,
     "",

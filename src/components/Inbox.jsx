@@ -7,6 +7,7 @@ import { Avatar, ProjectDot } from './common'
 const TEXT = {
   assigned: 'あなたにタスクを割り当てました',
   comment: 'コメントしました',
+  mention: 'コメントであなたをメンションしました',
   completed: 'あなたが依頼したタスクを完了しました',
   due_today: '今日が期限です',
   due_tomorrow: '明日が期限です',
@@ -63,7 +64,7 @@ export default function Inbox({ openTask, activeTask }) {
                   {p && <span className="proj-chip"><ProjectDot color={p.color} size={8} /> {p.name}</span>}
                   {t?.due_date && <span className="muted small">期限 {formatDue(t.due_date)}</span>}
                 </div>
-                {n.kind === 'comment' && n.body && <div className="inbox-quote">{n.body}</div>}
+                {(n.kind === 'comment' || n.kind === 'mention') && n.body && <div className="inbox-quote">{n.body}</div>}
               </div>
               {!n.read_at && <span className="dot" aria-label="未読" />}
             </button>

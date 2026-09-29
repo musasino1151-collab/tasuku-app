@@ -32,6 +32,7 @@ export default function MyTasks({ sub, go, openTask }) {
 
   const base = Object.values(state.tasks).filter(t =>
     requested ? t.created_by === meId && t.assignee_id && t.assignee_id !== meId : t.assignee_id === meId)
+  const add = fields => actions.createTask(fields)
   const open = base.filter(t => !t.completed || keep.has(t.id))
   const done = base.filter(t => t.completed && !keep.has(t.id))
     .sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).slice(0, 100)
@@ -76,8 +77,7 @@ export default function MyTasks({ sub, go, openTask }) {
         <TaskHeader showProject />
         {!requested && (
           <div className="quick-row">
-            <QuickAdd placeholder="タスクを追加…（Enter で連続追加）"
-              onAdd={title => actions.createTask({ title, assignee_id: meId, due_date: null })} />
+            <QuickAdd placeholder="タスクを追加…（Enter で連続追加）" onAdd={title => add({ title, assignee_id: meId })} />
           </div>
         )}
         {groups.map(g => (
@@ -93,7 +93,7 @@ export default function MyTasks({ sub, go, openTask }) {
             {!collapsed[g.key] && g.key === 'today' && !requested && (
               <div className="quick-row indent">
                 <QuickAdd placeholder="今日のタスクを追加…"
-                  onAdd={title => actions.createTask({ title, assignee_id: meId, due_date: today })} />
+                  onAdd={title => add({ title, assignee_id: meId, due_date: today })} />
               </div>
             )}
           </div>
@@ -110,7 +110,7 @@ export default function MyTasks({ sub, go, openTask }) {
           </div>
         )}
       </div>
-      <p className="hint">/ キーで検索　·　タスクをクリックすると右側に詳細が開きます</p>
+      <p className="hint">タスク名をクリックで詳細　·　ダブルクリックで名前を編集　·　各欄はクリックでその場で変更　·　右クリックでメニュー</p>
     </div>
   )
 }

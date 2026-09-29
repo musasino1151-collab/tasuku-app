@@ -4,7 +4,7 @@ import Icon from './Icon'
 import { EditableText, Menu, QuickAdd } from './common'
 import { TaskHeader, TaskRow } from './TaskRow'
 
-export default function ListView({ project, groups, openTask, toggle, move, addTask }) {
+export default function ListView({ project, groups, openTask, toggle, move, addTask, onEdit }) {
   const { actions } = useStore()
   const [drag, setDrag] = useState(null)       // ドラッグ中のタスク ID
   const [over, setOver] = useState(null)       // 'task:<id>' | 'sec:<id>'
@@ -57,7 +57,7 @@ export default function ListView({ project, groups, openTask, toggle, move, addT
             {!collapsed[key] && (
               <>
                 {g.tasks.map(t => (
-                  <TaskRow key={t.id} task={t} onOpen={openTask} onToggle={() => toggle(t)} dnd={rowDnd(t, g.id)} />
+                  <TaskRow key={t.id} task={t} onOpen={openTask} onToggle={() => toggle(t)} onEdit={onEdit} dnd={rowDnd(t, g.id)} />
                 ))}
                 <div className="quick-row indent">
                   <QuickAdd onAdd={title => addTask(g.id, title)} />

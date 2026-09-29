@@ -9,6 +9,7 @@ import ProjectView from './ProjectView'
 import TaskDetail from './TaskDetail'
 import ProjectModal from './ProjectModal'
 import SettingsModal from './SettingsModal'
+import { TaskMenuProvider } from './TaskMenu'
 
 export default function Shell() {
   const { state } = useStore()
@@ -43,6 +44,7 @@ export default function Shell() {
   const task = route.task ? state.tasks[route.task] : null
 
   return (
+    <TaskMenuProvider openTask={openTask} onDeleted={id => { if (route.task === id) closeTask() }}>
     <div className={'shell' + (navOpen ? ' nav-open' : '') + (task ? ' has-detail' : '')}>
       <Sidebar route={route} nav={nav}
         onNewProject={() => { setModal({ type: 'project' }); setNavOpen(false) }}
@@ -56,5 +58,6 @@ export default function Shell() {
       {modal?.type === 'project' && <ProjectModal project={modal.project} go={go} onClose={() => setModal(null)} />}
       {modal?.type === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
     </div>
+    </TaskMenuProvider>
   )
 }

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { formatDue, formatTime, nextPosition, sortByPos, todayStr, addDays } from '../lib/utils'
+import { formatDue, formatTime, nextPosition, sortByPos } from '../lib/utils'
 import Icon from './Icon'
-import { AssigneeSelect, Avatar, CheckButton, DueLabel, Menu, ProjectDot } from './common'
+import { useTaskMenu } from './TaskMenu'
+import { CommentBody, CommentComposer } from './mentions'
+import { Avatar, CheckButton, Menu } from './common'
+import { DatePicker, InlineTitle, PersonPicker, PriorityPicker, ProjectPicker } from './pickers'
 
 function useAutoSave(value, save, delay = 700) {
   const timer = useRef(null)
@@ -22,10 +25,11 @@ function autoGrow(el) {
 
 export default function TaskDetail({ task, onClose, openTask, go }) {
   const { state, meId, actions, notify } = useStore()
+  const menu = useTaskMenu()
   const [title, setTitle] = useState(task.title)
   const [desc, setDesc] = useState(task.description)
-  const [comment, setComment] = useState('')
   const [newSub, setNewSub] = useState('')
+  const [lastSub, setLastSub] = useState(null)
   const focused = useRef({ title: false, desc: false })
   const titleRef = useRef(null)
   const descRef = useRef(null)
@@ -79,9 +83,6 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
   const parent = state.tasks[task.parent_id]
   const creator = state.profiles[task.created_by]
   const subs = sortByPos(Object.values(state.tasks).filter(t => t.parent_id === task.id))
-  const sections = sortByPos(Object.values(state.sections).filter(s => s.project_id === task.project_id))
-  const projects = Object.values(state.projects).filter(p => !p.archived || p.id === task.project_id)
-    .sort((a, b) => a.position - b.position)
 
   const feed = useMemo(() => {
     const c = Object.values(state.comments).filter(x => x.task_id === task.id).map(x => ({ ...x, _type: 'comment' }))
@@ -105,24 +106,17 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
     }
   }
 
-  const setProject = pid => {
-    const first = sortByPos(Object.values(state.sections).filter(s => s.project_id === pid))[0]
-    const siblings = Object.values(state.tasks).filter(t => t.project_id === pid && t.section_id === (first?.id || null))
-    actions.updateTask(task.id, { project_id: pid || null, section_id: first?.id || null, position: nextPosition(siblings) })
-    subs.forEach(s => actions.updateTask(s.id, { project_id: pid || null }))
-  }
-
-  const sendComment = () => {
-    const body = comment.trim()
-    if (!body) return
-    actions.addComment(task.id, body)
-    setComment('')
+  const setProject = ({ project_id, section_id }) => {
+    const siblings = Object.values(state.tasks).filter(t => t.project_id === project_id && t.section_id === section_id)
+    actions.updateTask(task.id, { project_id, section_id, position: nextPosition(siblings) })
+    subs.forEach(st => actions.updateTask(st.id, { project_id }))
   }
 
   const addSub = () => {
     const t = newSub.trim()
     if (!t) return
-    actions.createTask({ title: t, parent_id: task.id, project_id: task.project_id, position: nextPosition(subs) })
+    const row = actions.createTask({ title: t, parent_id: task.id, project_id: task.project_id, position: nextPosition(subs) })
+    setLastSub(row.id)
     setNewSub('')
   }
 
@@ -170,44 +164,24 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
           <div className="fields">
             <label className="f-label">担当者</label>
             <div className="f-value">
-              <Avatar user={state.profiles[task.assignee_id]} size={24} />
-              <AssigneeSelect value={task.assignee_id} onChange={v => actions.updateTask(task.id, { assignee_id: v })} className="select-ghost" />
+              <PersonPicker variant="field" value={task.assignee_id} placeholder="担当者なし"
+                onChange={v => actions.updateTask(task.id, { assignee_id: v })} />
               {task.assignee_id !== meId && (
                 <button type="button" className="link-btn" onClick={() => actions.updateTask(task.id, { assignee_id: meId })}>自分に割り当て</button>
               )}
             </div>
 
-            <label className="f-label">期限</label>
+            <label className="f-label">期日</label>
             <div className="f-value">
-              <input type="date" className="select select-ghost" value={task.due_date || ''}
-                onChange={e => actions.updateTask(task.id, { due_date: e.target.value || null })} />
-              {task.due_date ? (
-                <>
-                  <DueLabel due={task.due_date} completed={task.completed} />
-                  <button type="button" className="icon-btn icon-btn-sm" onClick={() => actions.updateTask(task.id, { due_date: null })} aria-label="期限を削除"><Icon name="x" size={12} /></button>
-                </>
-              ) : (
-                <span className="row-gap">
-                  <button type="button" className="link-btn" onClick={() => actions.updateTask(task.id, { due_date: todayStr() })}>今日</button>
-                  <button type="button" className="link-btn" onClick={() => actions.updateTask(task.id, { due_date: addDays(todayStr(), 1) })}>明日</button>
-                  <button type="button" className="link-btn" onClick={() => actions.updateTask(task.id, { due_date: addDays(todayStr(), 7) })}>1週間後</button>
-                </span>
-              )}
+              <DatePicker variant="field" value={task.due_date} startValue={task.start_date} completed={task.completed}
+                onChange={v => actions.updateTask(task.id, { due_date: v })}
+                onStartChange={v => actions.updateTask(task.id, { start_date: v })} />
             </div>
 
             <label className="f-label">プロジェクト</label>
             <div className="f-value">
-              {project && <ProjectDot color={project.color} />}
-              <select className="select select-ghost" value={task.project_id || ''} onChange={e => setProject(e.target.value || null)} disabled={!!parent}>
-                <option value="">なし</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              {project && !parent && (
-                <select className="select select-ghost" value={task.section_id || ''} onChange={e => actions.updateTask(task.id, { section_id: e.target.value || null })}>
-                  <option value="">セクションなし</option>
-                  {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              )}
+              <ProjectPicker variant="field" projectId={task.project_id} sectionId={task.section_id} disabled={!!parent}
+                onChange={setProject} />
               {project && (
                 <button type="button" className="link-btn" onClick={() => go({ view: 'project', id: project.id, tab: 'list', task: task.id })}>開く</button>
               )}
@@ -215,13 +189,12 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
 
             <label className="f-label">優先度</label>
             <div className="f-value">
-              <select className={'select select-ghost prio-' + (task.priority || 'none')} value={task.priority || ''}
-                onChange={e => actions.updateTask(task.id, { priority: e.target.value || null })}>
-                <option value="">なし</option>
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
-              </select>
+              <PriorityPicker variant="field" value={task.priority} onChange={v => actions.updateTask(task.id, { priority: v })} />
+            </div>
+
+            <label className="f-label">作成者</label>
+            <div className="f-value muted small">
+              {creator ? <><Avatar user={creator} size={20} /> {creator.name}</> : '—'} · {formatTime(task.created_at)}
             </div>
           </div>
 
@@ -236,19 +209,21 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
           <div className="block">
             <div className="block-label">サブタスク {subs.length > 0 && <span className="count">{subs.filter(s => s.completed).length}/{subs.length}</span>}</div>
             <div className="subtasks">
-              {subs.map(s => (
-                <div key={s.id} className={'subtask' + (s.completed ? ' is-done' : '')} onClick={() => openTask(s.id)}>
-                  <CheckButton done={s.completed} size={16} onToggle={() => actions.updateTask(s.id, { completed: !s.completed })} />
-                  <span className={'ellipsis' + (s.completed ? ' done-text' : '')}>{s.title || '(無題)'}</span>
-                  <span className="ml-auto row-gap">
-                    <DueLabel due={s.due_date} completed={s.completed} />
-                    <Avatar user={state.profiles[s.assignee_id]} size={20} />
+              {subs.map(st => (
+                <div key={st.id} className={'subtask' + (st.completed ? ' is-done' : '')} onClick={() => openTask(st.id)} onContextMenu={e => menu(e, st.id)}>
+                  <CheckButton done={st.completed} size={16} onToggle={() => actions.updateTask(st.id, { completed: !st.completed })} />
+                  <InlineTitle value={st.title} done={st.completed} placeholder="サブタスク名"
+                    onOpen={() => openTask(st.id)} onSave={v => actions.updateTask(st.id, { title: v })} />
+                  <span className="sub-cells" onClick={e => e.stopPropagation()}>
+                    <DatePicker value={st.due_date} completed={st.completed} onChange={v => actions.updateTask(st.id, { due_date: v })} />
+                    <PersonPicker value={st.assignee_id} onChange={v => actions.updateTask(st.id, { assignee_id: v })} />
                   </span>
+                  <button type="button" className="detail-btn" onClick={e => { e.stopPropagation(); openTask(st.id) }}>詳細 <Icon name="chevron" size={12} /></button>
                 </div>
               ))}
               <div className="subtask subtask-new">
                 <Icon name="plus" size={14} />
-                <input value={newSub} placeholder="サブタスクを追加（Enter）" onChange={e => setNewSub(e.target.value)}
+                <input value={newSub} placeholder="サブタスクを追加（Enter で連続追加）" onChange={e => setNewSub(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); addSub() } }}
                   onBlur={addSub} />
               </div>
@@ -269,7 +244,7 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
                       </span>
                     )}
                   </div>
-                  <div className="comment-body">{item.body}</div>
+                  <CommentBody body={item.body} mentions={item.mentions} />
                 </div>
               </div>
             ) : (
@@ -285,15 +260,7 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
 
         <div className="composer">
           <Avatar user={state.profiles[meId]} size={28} />
-          <div className="composer-box">
-            <textarea value={comment} rows={comment.includes('\n') ? 4 : 2} placeholder="コメントを書く…（⌘/Ctrl + Enter で送信）"
-              onChange={e => setComment(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendComment() } }} />
-            <div className="composer-foot">
-              <span className="small muted">担当者・作成者・過去のコメント投稿者に通知されます</span>
-              <button type="button" className="btn btn-primary btn-sm" disabled={!comment.trim()} onClick={sendComment}>送信</button>
-            </div>
-          </div>
+          <CommentComposer onSend={(body, mentions) => actions.addComment(task.id, body, mentions)} />
         </div>
       </aside>
     </>

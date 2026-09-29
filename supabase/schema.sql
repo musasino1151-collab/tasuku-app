@@ -18,6 +18,7 @@ create table if not exists private.app_config (
   key   text primary key,
   value text not null
 );
+alter table private.app_config enable row level security;
 
 -- ---------------------------------------------------------------------
 -- テーブル
@@ -58,6 +59,7 @@ create table public.tasks (
   title        text not null default '',
   description  text not null default '',
   assignee_id  uuid references public.profiles(id) on delete set null,
+  start_date   date,
   due_date     date,
   priority     text check (priority in ('high', 'medium', 'low')),
   completed    boolean not null default false,
@@ -73,6 +75,7 @@ create table public.comments (
   task_id    uuid not null references public.tasks(id) on delete cascade,
   author_id  uuid references public.profiles(id) on delete set null default auth.uid(),
   body       text not null,
+  mentions   uuid[] not null default '{}',
   created_at timestamptz not null default now()
 );
 
@@ -90,7 +93,7 @@ create table public.notifications (
   user_id    uuid not null references public.profiles(id) on delete cascade,
   actor_id   uuid references public.profiles(id) on delete set null,
   task_id    uuid references public.tasks(id) on delete cascade,
-  kind       text not null,          -- assigned | comment | completed | due_today | due_tomorrow
+  kind       text not null,          -- assigned | comment | mention | completed | due_today | due_tomorrow
   body       text not null default '',
   ref_date   date,
   read_at    timestamptz,
@@ -220,13 +223,27 @@ declare
   rid uuid;
 begin
   select * into t from tasks where id = new.task_id;
+
+  -- メンションされた人には「メンション」として通知
+  for rid in
+    select distinct u from unnest(coalesce(new.mentions, '{}')) as u
+    where u is distinct from new.author_id
+      and exists (select 1 from profiles p where p.id = u)
+  loop
+    insert into notifications (user_id, actor_id, task_id, kind, body)
+    values (rid, new.author_id, new.task_id, 'mention', left(new.body, 1000));
+  end loop;
+
+  -- 担当者・作成者・過去のコメント投稿者には「コメント」として通知（メンション済みの人は除く）
   for rid in
     select distinct u from (
       select t.assignee_id as u
       union select t.created_by
       union select c.author_id from comments c where c.task_id = new.task_id
     ) x
-    where u is not null and u is distinct from new.author_id
+    where u is not null
+      and u is distinct from new.author_id
+      and not (u = any (coalesce(new.mentions, '{}')))
   loop
     insert into notifications (user_id, actor_id, task_id, kind, body)
     values (rid, new.author_id, new.task_id, 'comment', left(new.body, 1000));
