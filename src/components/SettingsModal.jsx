@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { formatSize } from './Attachments'
 import { useStore } from '../store'
 import { COLORS } from '../lib/utils'
 import { Avatar, Modal, useMembers } from './common'
@@ -8,6 +9,8 @@ export default function SettingsModal({ onClose }) {
   const members = useMembers()
   const [name, setName] = useState(me.name)
   const [pw, setPw] = useState('')
+  const [usage, setUsage] = useState(undefined)
+  useEffect(() => { actions.storageUsage().then(setUsage) }, [actions])
 
   const saveName = () => { if (name.trim() && name.trim() !== me.name) { actions.updateProfile({ name: name.trim() }); notify('表示名を保存しました') } }
   const savePw = async () => {
@@ -50,6 +53,30 @@ export default function SettingsModal({ onClose }) {
               onChange={e => setPw(e.target.value)} />
             <button type="button" className="btn" onClick={savePw} disabled={!pw}>変更</button>
           </div>
+        </section>
+
+        <section>
+          <h3>添付ファイルの使用容量</h3>
+          {usage === undefined ? <p className="muted small">読み込み中…</p> : usage === null ? (
+            <p className="muted small">集計できませんでした（データベースの更新 005 が未実行の可能性があります）</p>
+          ) : (() => {
+            const free = usage.r2 ? 10 * 1024 ** 3 : 1024 ** 3
+            const used = usage.r2 ? Number(usage.r2_bytes) : Number(usage.supabase_bytes)
+            const pct = Math.min(100, (used / free) * 100)
+            return (
+              <div className="usage">
+                <div className="usage-bar"><div style={{ width: Math.max(pct, 0.5) + '%', background: pct > 80 ? 'var(--red)' : 'var(--blue)' }} /></div>
+                <div className="usage-row">
+                  <b>{formatSize(used)}</b> <span className="muted">/ 無料枠 {usage.r2 ? '10GB（Cloudflare R2）' : '1GB（Supabase）'} · {pct.toFixed(1)}%</span>
+                </div>
+                <p className="muted small">
+                  ファイル数 {usage.files} 件
+                  {usage.r2 && Number(usage.supabase_bytes) > 0 && <> · 切り替え前のファイル {formatSize(Number(usage.supabase_bytes))}（Supabase）</>}
+                  {usage.r2 && <><br />10GB を超えても止まりません。超えた分は 1GB あたり月 $0.015（100GB で約 200 円/月）です。</>}
+                </p>
+              </div>
+            )
+          })()}
         </section>
 
         <section>

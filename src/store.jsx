@@ -2,11 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { supabase, DEMO } from './lib/supabase'
 import { byId, uid } from './lib/utils'
 import { demoData } from './lib/demo'
+import { r2Available, r2Delete, r2Upload, r2Url, shrinkEnabled, shrinkImage } from './lib/files'
 
 const Ctx = createContext(null)
 export const useStore = () => useContext(Ctx)
 
-const TABLES = ['profiles', 'projects', 'sections', 'tasks', 'notifications', 'comments', 'activities']
+const TABLES = ['profiles', 'projects', 'sections', 'tasks', 'notifications', 'comments', 'activities', 'attachments']
+const BUCKET = 'attachments'
+export const MAX_FILE_MB = 50
 
 function reducer(state, a) {
   switch (a.type) {
@@ -110,7 +113,7 @@ export function StoreProvider({ session, children }) {
     }
     let first = true
     const ch = supabase.channel('realtime-' + meId)
-    for (const table of ['profiles', 'projects', 'sections', 'tasks', 'comments', 'activities']) {
+    for (const table of ['profiles', 'projects', 'sections', 'tasks', 'comments', 'activities', 'attachments']) {
       ch.on('postgres_changes', { event: '*', schema: 'public', table }, apply(table))
     }
     ch.on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${meId}` }, apply('notifications'))
@@ -173,7 +176,16 @@ export function StoreProvider({ session, children }) {
         }
         collect(id)
         dispatch({ type: 'remove', table: 'tasks', id: removed.map(t => t.id) })
-        run(() => supabase.from('tasks').delete().eq('id', id),
+        run(async () => {
+          // 添付ファイルの実体も一緒に削除（失敗してもタスク削除は続行）
+          const ids = removed.map(t => t.id)
+          const { data: files } = await supabase.from('attachments').select('*').in('task_id', ids)
+          const r2Keys = (files || []).filter(f => f.storage === 'r2').map(f => f.path)
+          const sbKeys = (files || []).filter(f => f.storage !== 'r2').map(f => f.path)
+          if (r2Keys.length) await r2Delete(r2Keys).catch(() => {})
+          if (sbKeys.length) await supabase.storage.from(BUCKET).remove(sbKeys)
+          return supabase.from('tasks').delete().eq('id', id)
+        },
           () => dispatch({ type: 'upsertMany', table: 'tasks', rows: removed }))
       },
 
@@ -253,6 +265,86 @@ export function StoreProvider({ session, children }) {
         if (c.error || act.error) return fail(c.error || act.error)
         dispatch({ type: 'upsertMany', table: 'comments', rows: c.data })
         dispatch({ type: 'upsertMany', table: 'activities', rows: act.data })
+        const at = await supabase.from('attachments').select('*').eq('task_id', taskId)
+        if (at.error) console.warn('attachments:', at.error.message) // 未設定でも他は動かす
+        else dispatch({ type: 'upsertMany', table: 'attachments', rows: at.data })
+      },
+
+      // ---------- 添付ファイル ----------
+      async uploadFiles(taskId, fileList) {
+        let files = [...fileList]
+        if (shrinkEnabled()) files = await Promise.all(files.map(f => shrinkImage(f).catch(() => f)))
+        const tooBig = files.filter(f => f.size > MAX_FILE_MB * 1024 * 1024)
+        if (tooBig.length) notify(`${MAX_FILE_MB}MB を超えるファイルは添付できません：${tooBig.map(f => f.name).join('、')}`)
+        const useR2 = !DEMO && await r2Available()
+        for (const file of files.filter(f => !tooBig.includes(f))) {
+          const id = uid()
+          const ext = (file.name.match(/\.([A-Za-z0-9]{1,10})$/)?.[1] || 'bin').toLowerCase()
+          const row = {
+            id, task_id: taskId, name: file.name, size: file.size, mime: file.type || '',
+            path: `${taskId}/${id}.${ext}`, uploaded_by: meId, created_at: now(), _uploading: true,
+          }
+          if (useR2) row.storage = 'r2'
+          if (DEMO) row._localUrl = URL.createObjectURL(file)
+          dispatch({ type: 'upsert', table: 'attachments', row })
+          if (DEMO) {
+            dispatch({ type: 'upsert', table: 'attachments', row: { id, _uploading: false } })
+            a._demoActivity(taskId, 'attached', { name: file.name })
+            continue
+          }
+          try {
+            if (useR2) await r2Upload(row.path, file)
+            else {
+              const up = await supabase.storage.from(BUCKET).upload(row.path, file, { contentType: file.type || undefined, upsert: false })
+              if (up.error) throw up.error
+            }
+          } catch (e) {
+            dispatch({ type: 'remove', table: 'attachments', id })
+            fail(e)
+            continue
+          }
+          const { _uploading, ...insert } = row
+          const ins = await supabase.from('attachments').insert(insert)
+          if (ins.error) {
+            if (useR2) await r2Delete([row.path]).catch(() => {})
+            else await supabase.storage.from(BUCKET).remove([row.path])
+            dispatch({ type: 'remove', table: 'attachments', id })
+            fail(ins.error)
+            continue
+          }
+          dispatch({ type: 'upsert', table: 'attachments', row: { id, _uploading: false } })
+        }
+      },
+      async fileUrl(att, download = false) {
+        if (DEMO) return att._localUrl
+        if (att.storage === 'r2') {
+          try { return await r2Url(att.path, att.name, download) } catch (e) { fail(e); return null }
+        }
+        const { data, error } = await supabase.storage.from(BUCKET)
+          .createSignedUrl(att.path, 60 * 60, download ? { download: att.name } : undefined)
+        if (error) { fail(error); return null }
+        return data.signedUrl
+      },
+      async storageUsage() {
+        if (DEMO) {
+          const bytes = Object.values(S().attachments).reduce((m, x) => m + (x.size || 0), 0)
+          return { r2: true, r2_bytes: bytes, supabase_bytes: 0, files: Object.keys(S().attachments).length }
+        }
+        const [{ data, error }, r2] = await Promise.all([supabase.rpc('attachments_usage'), r2Available()])
+        if (error) return null
+        return { r2, ...(Array.isArray(data) ? data[0] : data) }
+      },
+      deleteAttachment(id) {
+        const prev = S().attachments[id]
+        if (!prev) return
+        dispatch({ type: 'remove', table: 'attachments', id })
+        run(async () => {
+          const r = await supabase.from('attachments').delete().eq('id', id)
+          if (r.error) return r
+          if (prev.storage === 'r2') await r2Delete([prev.path]).catch(() => {})
+          else await supabase.storage.from(BUCKET).remove([prev.path])
+          return r
+        }, () => dispatch({ type: 'upsert', table: 'attachments', row: prev }))
       },
       addComment(taskId, body, mentions = []) {
         const row = { id: uid(), task_id: taskId, author_id: meId, body, created_at: now() }

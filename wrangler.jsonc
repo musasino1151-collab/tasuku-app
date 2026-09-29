@@ -1,11 +1,22 @@
 {
-  // Cloudflare Workers（静的アセット）設定
+  // Cloudflare Workers 設定
   // name は Cloudflare 上の Worker 名と同じにすること
   "name": "team-tasuku",
+  "main": "worker/index.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
+  "keep_vars": true,
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // 添付ファイルの保存先（先に Cloudflare の R2 でこの名前のバケットを作成しておくこと）
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "team-tasuku-files" }
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://zoulqmcznakjhzkstphk.supabase.co"
   }
 }

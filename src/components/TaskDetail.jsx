@@ -4,6 +4,7 @@ import { formatDue, formatTime, nextPosition, sortByPos } from '../lib/utils'
 import Icon from './Icon'
 import { useTaskMenu } from './TaskMenu'
 import { CommentBody, CommentComposer } from './mentions'
+import Attachments from './Attachments'
 import { Avatar, CheckButton, Menu } from './common'
 import { DatePicker, InlineTitle, PersonPicker, PriorityPicker, ProjectPicker } from './pickers'
 
@@ -30,6 +31,7 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
   const [desc, setDesc] = useState(task.description)
   const [newSub, setNewSub] = useState('')
   const [lastSub, setLastSub] = useState(null)
+  const [dragOver, setDragOver] = useState(false)
   const focused = useRef({ title: false, desc: false })
   const titleRef = useRef(null)
   const descRef = useRef(null)
@@ -101,6 +103,7 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
       case 'completed': return `${who}が完了にしました`
       case 'reopened': return `${who}が未完了に戻しました`
       case 'due': return a.data?.to ? `${who}が期限を${formatDue(a.data.to)}に変更しました` : `${who}が期限を削除しました`
+      case 'attached': return `${who}がファイル「${a.data?.name || ''}」を添付しました`
       case 'moved': return `${who}がプロジェクトを「${state.projects[a.data?.to]?.name || 'なし'}」に変更しました`
       default: return `${who}が更新しました`
     }
@@ -128,7 +131,22 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
   return (
     <>
       <div className="detail-backdrop" onClick={onClose} />
-      <aside className="detail" aria-label="タスクの詳細">
+      <aside className={'detail' + (dragOver ? ' drag-over' : '')} aria-label="タスクの詳細"
+        onDragOver={e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); setDragOver(true) } }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false) }}
+        onDrop={e => {
+          if (!e.dataTransfer.files.length) return
+          e.preventDefault(); setDragOver(false)
+          actions.uploadFiles(task.id, e.dataTransfer.files)
+        }}
+        onPaste={e => {
+          const files = [...(e.clipboardData?.files || [])]
+          if (!files.length) return
+          e.preventDefault()
+          actions.uploadFiles(task.id, files.map((f, i) => f.name && f.name !== 'image.png' ? f
+            : new File([f], `貼り付け画像_${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}${i ? '_' + i : ''}.png`, { type: f.type })))
+        }}>
+        {dragOver && <div className="drop-hint"><Icon name="attach" size={20} /> ここにドロップして添付</div>}
         <div className="detail-head">
           <button type="button" className={'btn btn-sm' + (task.completed ? ' btn-done' : '')}
             onClick={() => actions.updateTask(task.id, { completed: !task.completed })}>
@@ -205,6 +223,8 @@ export default function TaskDetail({ task, onClose, openTask, go }) {
               onBlur={() => { focused.current.desc = false; saveDesc() }}
               onChange={e => setDesc(e.target.value)} />
           </div>
+
+          <Attachments taskId={task.id} />
 
           <div className="block">
             <div className="block-label">サブタスク {subs.length > 0 && <span className="count">{subs.filter(s => s.completed).length}/{subs.length}</span>}</div>
